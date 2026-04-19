@@ -26,10 +26,17 @@ public class WaveManager : MonoBehaviour
     [SerializeField] private Boss  bossPrefab;
 
     [Header("Stats base (nível 0)")]
-    [SerializeField] private int   baseHP        = 10;
-    [SerializeField] private float baseSpeed     = 4f;
+    [SerializeField] private int   baseHP        = 2;
+    [SerializeField] private float baseSpeed     = 1.5f;
     [SerializeField] private int   baseDamage    = 1;
     [SerializeField] private int   baseDrop      = 3;
+
+    [Header("Override de teste — usa esses valores e ignora scaling")]
+    [SerializeField] private bool  overrideStats    = false;
+    [SerializeField] private int   overrideHP       = 2;
+    [SerializeField] private float overrideSpeed    = 1.5f;
+    [SerializeField] private int   overrideDamage   = 1;
+    [SerializeField] private int   overrideDrop     = 3;
 
     [Header("Scaling")]
     [SerializeField] private float statMultiplierPerLevel = 1.3f;  // cada nível multiplica os stats
@@ -136,25 +143,28 @@ public class WaveManager : MonoBehaviour
     {
         if (spawnPoints.Count == 0) return;
 
-        // Ponto de spawn aleatório + pequeno offset
-        Transform point    = spawnPoints[Random.Range(0, spawnPoints.Count)];
-        Vector3   spawnPos = point.position + (Vector3)UtilsClass.GetRandomDir() * Random.Range(0f, 0.8f);
+        // Escolhe spawn point e infere direcao pelo nome (_N, _S, _E, _W)
+        Transform              point     = spawnPoints[Random.Range(0, spawnPoints.Count)];
+        WaypointGrid.Direction direction = WaypointGrid.GetDirection(point.name);
+        Vector3                spawnPos  = point.position;
 
         if (isBossWave)
         {
-            Boss boss = Instantiate(bossPrefab, spawnPos, Quaternion.identity);
-            int  bossId = waveNumber / wavesBetweenBoss; // ID único da peça do relógio
+            Boss boss   = Instantiate(bossPrefab, spawnPos, Quaternion.identity);
+            int  bossId = waveNumber / wavesBetweenBoss;
+            boss.SetDirection(direction);
             boss.SetBossStats(
-                hp:     GetScaledHP() * 5,
-                speed:  GetScaledSpeed() * 0.6f,
-                damage: GetScaledDamage() * 3,
-                drop:   GetScaledDrop() * bossDropMultiplier,
+                hp:      GetScaledHP() * 5,
+                speed:   GetScaledSpeed() * 0.6f,
+                damage:  GetScaledDamage() * 3,
+                drop:    GetScaledDrop() * bossDropMultiplier,
                 pieceId: bossId
             );
         }
         else
         {
             Enemy enemy = Instantiate(enemyPrefab, spawnPos, Quaternion.identity);
+            enemy.SetDirection(direction);
             enemy.SetStats(GetScaledHP(), GetScaledSpeed(), GetScaledDamage(), GetScaledDrop());
         }
     }
@@ -164,10 +174,10 @@ public class WaveManager : MonoBehaviour
     // ------------------------------------------------------------------
     private float GetMultiplier()    => Mathf.Pow(statMultiplierPerLevel, currentEnemyLevel);
 
-    private int   GetScaledHP()      => Mathf.RoundToInt(baseHP    * GetMultiplier());
-    private float GetScaledSpeed()   => baseSpeed  + currentEnemyLevel * 0.2f;
-    private int   GetScaledDamage()  => Mathf.RoundToInt(baseDamage * GetMultiplier());
-    private int   GetScaledDrop()    => Mathf.RoundToInt(baseDrop   * GetMultiplier());
+    private int   GetScaledHP()      => overrideStats ? overrideHP     : Mathf.RoundToInt(baseHP    * GetMultiplier());
+    private float GetScaledSpeed()   => overrideStats ? overrideSpeed  : baseSpeed + currentEnemyLevel * 0.2f;
+    private int   GetScaledDamage()  => overrideStats ? overrideDamage : Mathf.RoundToInt(baseDamage * GetMultiplier());
+    private int   GetScaledDrop()    => overrideStats ? overrideDrop   : Mathf.RoundToInt(baseDrop   * GetMultiplier());
 
     private int GetEnemyCountForWave()
         => 3 + waveNumber + currentEnemyLevel;

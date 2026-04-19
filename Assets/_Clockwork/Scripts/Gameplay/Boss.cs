@@ -15,6 +15,11 @@ public class Boss : Enemy
     // ------------------------------------------------------------------
     // API pública — WaveManager usa SetBossStats em vez de SetStats
     // ------------------------------------------------------------------
+    public void SetDirection(WaypointGrid.Direction dir)
+    {
+        base.SetDirection(dir);
+    }
+
     public void SetBossStats(int hp, float speed, int damage, int drop, int pieceId)
     {
         this.pieceId = pieceId;

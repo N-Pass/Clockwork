@@ -32,7 +32,7 @@ public static class UpgradeConfig
     private static readonly int[] towerHPValues        = { 5, 10, 18, 30, 50, 80 };
 
     // Duração da run em segundos: nível 0 = 5s, ..., nível 5 = 60s
-    private static readonly int[] runDurationValues    = { 5, 12, 22, 35, 50, 60 };
+    private static readonly int[] runDurationValues    = { 55, 12, 22, 35, 50, 60 };
 
     // Multiplicador de drop (x1.0, x1.25, x1.5, x2.0, x2.5, x3.0)
     private static readonly float[] scrapDropValues    = { 1f, 1.25f, 1.5f, 2f, 2.5f, 3f };

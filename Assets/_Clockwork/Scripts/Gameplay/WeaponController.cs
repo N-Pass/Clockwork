@@ -42,6 +42,7 @@ public class WeaponController : MonoBehaviour
 
     private void Update()
     {
+        if (RunManager.Instance == null) return;
         if (RunManager.Instance.CurrentState != RunManager.RunState.Running) return;
 
         HandleAiming();
@@ -55,7 +56,7 @@ public class WeaponController : MonoBehaviour
     {
         Vector3 mouseWorld = UtilsClass.GetMouseWorldPosition();
         Vector3 dir        = (mouseWorld - weaponPivot.position).normalized;
-        float   angle      = UtilsClass.GetAngleFromVector(dir);
+        float   angle      = UtilsClass.GetAngleFromVector(dir) - 90f;
 
         weaponPivot.eulerAngles = new Vector3(0f, 0f, angle);
     }

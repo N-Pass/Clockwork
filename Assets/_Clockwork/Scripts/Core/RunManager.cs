@@ -39,8 +39,10 @@ public class RunManager : MonoBehaviour
     [Header("Configuração de dificuldade")]
     [SerializeField] private int killsPerEnemyLevel = 10;
 
-    [Header("Delay antes de trocar de cena")]
-    [SerializeField] private float endRunDelay = 1.5f;
+    [Header("Override de teste — ignora upgrades quando marcado")]
+    [SerializeField] private bool  overrideStats    = false;
+    [SerializeField] private float overrideRunDuration = 30f;
+    [SerializeField] private int   overrideTowerHP     = 5;
 
     // ------------------------------------------------------------------
     // Estado interno
@@ -66,13 +68,21 @@ public class RunManager : MonoBehaviour
 
     private void Start()
     {
-        // Lê duração da run do upgrade
-        runDuration = GameManager.Instance.GetRunDuration();
-        runTimer    = runDuration;
+        // Duração da run — override ou upgrade
+        if (overrideStats)
+            runDuration = overrideRunDuration;
+        else if (GameManager.Instance != null)
+            runDuration = GameManager.Instance.GetRunDuration();
+        else
+            runDuration = overrideRunDuration;
+        runTimer = runDuration;
 
-        // Aplica HP da torre vindo do upgrade
+        // HP da torre — override ou upgrade
         HealthSystem towerHS = mainTower.GetComponent<HealthSystem>();
-        towerHS.SetHealthAmountMax(GameManager.Instance.GetTowerHP(), updateHealthAmount: true);
+        int towerHP = overrideStats
+            ? overrideTowerHP
+            : (GameManager.Instance != null ? GameManager.Instance.GetTowerHP() : overrideTowerHP);
+        towerHS.SetHealthAmountMax(towerHP, updateHealthAmount: true);
         towerHS.OnDied += (s, e) => TowerDestroyed();
 
         // Torre principal é sempre o primeiro alvo
@@ -223,21 +233,17 @@ public class RunManager : MonoBehaviour
 
         CurrentState = RunState.End;
 
-        // Passa dados para o GameManager persistente
-        GameManager.Instance.RunScrapsEarned  = scrapsEarned;
-        GameManager.Instance.RunWasSuccess    = success;
-        GameManager.Instance.RunPiecesEarned  = piecesEarnedThisRun;
+        // Passa dados para o GameManager (se existir — guard para testes diretos)
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.RunScrapsEarned = scrapsEarned;
+            GameManager.Instance.RunWasSuccess   = success;
+            GameManager.Instance.RunPiecesEarned = piecesEarnedThisRun;
+        }
 
+        // Dispara evento ANTES do delay — RunEndUI aparece imediatamente
         OnRunEnded?.Invoke(success);
 
-        // Delay para animação de vitória/derrota antes de trocar de cena
-        StartCoroutine(DelayedSceneChange());
-    }
-
-    private IEnumerator DelayedSceneChange()
-    {
-        yield return new WaitForSeconds(endRunDelay);
-        GameManager.Instance.EndRun();
     }
 
     // ------------------------------------------------------------------

@@ -104,6 +104,9 @@ public class GameManager : MonoBehaviour
     // HUD → Gameplay: reseta dados da run e carrega a cena
     public void StartRun()
     {
+        if (CurrentProfile == null)
+            CurrentProfile = new ProfileData();
+
         RunScrapsEarned = 0;
         RunWasSuccess   = false;
         RunPiecesEarned = new List<int>();
@@ -114,7 +117,14 @@ public class GameManager : MonoBehaviour
     // Chamado pelo RunManager ao final de cada run
     public void EndRun()
     {
-        if (CurrentProfile == null) return;
+        if (CurrentProfile == null) //return;
+            CurrentProfile = new ProfileData();
+
+        if (CurrentSlot < 0)
+        {
+            SceneManager.LoadScene(SCENE_HUD);
+            return;
+        }
 
         // Aplica scraps — derrota dá metade
         int scrapsToAdd = RunWasSuccess

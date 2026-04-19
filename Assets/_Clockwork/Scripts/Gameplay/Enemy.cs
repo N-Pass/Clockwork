@@ -1,34 +1,52 @@
-// Enemy.cs  — adaptado do projeto anterior
+// Enemy.cs — sistema de waypoints por direção
 //
-// Mudanças em relação ao original:
-//   1. Alvo vem de RunManager.GetNearestTower() (não BuildingManager)
-//   2. OnCollisionEnter2D acessa Tower diretamente (não Building)
-//   3. HealthSystem_OnDied notifica RunManager.OnEnemyKilled()
-//   4. Stats configuráveis pelo WaveManager via SetStats()
-//   5. Removido: CinemachineShake, ChromaticAberrationEffect (opcionais)
-//   6. SoundManager mantido — adaptar enum Sound para sons do Clockwork
+// Fluxo de movimento:
+//   1. WaveManager chama SetDirection() com a direção do spawn point
+//   2. Start() monta a rota: [FirstPoint] + [2-6 intermediários] + [FinalPoint]
+//   3. Update() move em direção ao waypoint atual
+//   4. Ao chegar, avança para o próximo
+//   5. FinalPoint é sempre próximo à torre — colisão finaliza a rota
 
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Enemy : MonoBehaviour
 {
     // ------------------------------------------------------------------
-    // Stats — definidos pelo WaveManager antes do Instantiate
+    // Stats
     // ------------------------------------------------------------------
-    [SerializeField] protected int   maxHP             = 10;
-    [SerializeField] protected float moveSpeed         = 4f;
+    [SerializeField] protected int   maxHP             = 2;
+    [SerializeField] protected float moveSpeed         = 1.5f;
     [SerializeField] protected int   damageOnCollision = 1;
     [SerializeField] protected int   scrapDrop         = 3;
 
+    [Header("Waypoints")]
+    [SerializeField] private float arrivalDistance = 0.3f;
+
     // ------------------------------------------------------------------
-    // Interno
+    // Estado de rota
     // ------------------------------------------------------------------
-    protected Transform    targetTransform;
+    private WaypointGrid.Direction      direction;
+    private WaypointGrid.HorizontalSide currentSide = WaypointGrid.HorizontalSide.Undefined;
+    private List<Vector3>               route       = new List<Vector3>();
+    private int                         routeIndex  = 0;
+    private bool                        routeReady  = false;
+    private bool                        directionSet = false;
+
+    // ------------------------------------------------------------------
+    // Componentes
+    // ------------------------------------------------------------------
     private   Rigidbody2D  rb2D;
     protected HealthSystem healthSystem;
 
-    private float lookForTargetTimer;
-    private const float LOOK_TIMER_MAX = 0.2f;
+    // ------------------------------------------------------------------
+    // API — WaveManager chama SetDirection() logo após Instantiate
+    // ------------------------------------------------------------------
+    public void SetDirection(WaypointGrid.Direction dir)
+    {
+        direction    = dir;
+        directionSet = true;
+    }
 
     // ------------------------------------------------------------------
     // Unity
@@ -42,60 +60,87 @@ public class Enemy : MonoBehaviour
         healthSystem.OnDamaged += HealthSystem_OnDamaged;
         healthSystem.OnDied    += HealthSystem_OnDied;
 
-        // Alvo inicial = torre principal
-        Tower main = RunManager.Instance.GetMainTower();
-        if (main != null) targetTransform = main.transform;
+        if (!directionSet)
+            direction = WaypointGrid.Direction.North;
 
-        // Stagger para evitar que todos os inimigos refreshem no mesmo frame
-        lookForTargetTimer = Random.Range(0f, LOOK_TIMER_MAX);
+        BuildRoute();
     }
 
     protected virtual void Update()
     {
+        if (!routeReady) return;
         HandleMovement();
-        HandleTargeting();
     }
 
     // ------------------------------------------------------------------
-    // Movimento — idêntico ao original, só muda a fonte do alvo
+    // Construção da rota
+    // ------------------------------------------------------------------
+    private void BuildRoute()
+    {
+        route.Clear();
+        routeIndex = 0;
+
+        // 1. Primeiro ponto obrigatório
+        Vector3 firstPoint = WaypointGrid.GetFirstPoint(direction);
+        route.Add(firstPoint);
+
+        // Determina lado inicial a partir do primeiro ponto
+        int approxCol = Mathf.RoundToInt(
+            (firstPoint.x - WaypointGrid.GridOrigin.x) / WaypointGrid.CellWidth - 0.5f
+        );
+        approxCol   = Mathf.Clamp(approxCol, 0, WaypointGrid.Cols - 1);
+        currentSide = WaypointGrid.GetSide(approxCol);
+
+        // 2. Waypoints intermediários (2 a 6)
+        int count = Random.Range(2, 7);
+        for (int i = 0; i < count; i++)
+        {
+            WaypointGrid.HorizontalSide newSide;
+            Vector3 wp = WaypointGrid.GetRandomIntermediate(direction, currentSide, out newSide);
+            currentSide = newSide;
+            route.Add(wp);
+        }
+
+        // 3. Ponto final — próximo à torre
+        route.Add(WaypointGrid.GetFinalPoint(direction));
+
+        routeReady = true;
+    }
+
+    // ------------------------------------------------------------------
+    // Movimento
     // ------------------------------------------------------------------
     private void HandleMovement()
     {
-        if (targetTransform == null) return;
+        if (routeIndex >= route.Count)
+        {
+            rb2D.linearVelocity = Vector2.zero;
+            return;
+        }
 
-        Vector3 dir = (targetTransform.position - transform.position).normalized;
+        Vector3 target = route[routeIndex];
+        float   dist   = Vector3.Distance(transform.position, target);
+
+        if (dist <= arrivalDistance)
+        {
+            routeIndex++;
+            return;
+        }
+
+        MoveToward(target);
+    }
+
+    private void MoveToward(Vector3 target)
+    {
+        Vector3 dir = (target - transform.position).normalized;
         rb2D.linearVelocity = dir * moveSpeed;
 
-        // Rotaciona o sprite na direção do movimento (opcional)
         if (dir != Vector3.zero)
-        {
-            float angle = UtilsClass.GetAngleFromVector(dir);
-            transform.eulerAngles = new Vector3(0f, 0f, angle);
-        }
+            transform.eulerAngles = new Vector3(0f, 0f, UtilsClass.GetAngleFromVector(dir));
     }
 
     // ------------------------------------------------------------------
-    // Targeting — igual ao original
-    // ------------------------------------------------------------------
-    private void HandleTargeting()
-    {
-        lookForTargetTimer -= Time.deltaTime;
-        if (lookForTargetTimer < 0f)
-        {
-            lookForTargetTimer += LOOK_TIMER_MAX;
-            RefreshTarget();
-        }
-    }
-
-    private void RefreshTarget()
-    {
-        Tower nearest = RunManager.Instance.GetNearestTower(transform.position);
-        if (nearest != null)
-            targetTransform = nearest.transform;
-    }
-
-    // ------------------------------------------------------------------
-    // Colisão com torre — dano + auto-destruição
+    // Colisão com torre
     // ------------------------------------------------------------------
     private void OnCollisionEnter2D(Collision2D collision)
     {
@@ -103,18 +148,14 @@ public class Enemy : MonoBehaviour
         if (tower != null)
         {
             tower.GetComponent<HealthSystem>().Damage(damageOnCollision);
-            healthSystem.Damage(9999); // suicida após colidir
+            healthSystem.Damage(9999);
         }
     }
 
     // ------------------------------------------------------------------
     // Eventos de HP
     // ------------------------------------------------------------------
-    private void HealthSystem_OnDamaged(object sender, System.EventArgs e)
-    {
-        // SoundManager.Instance.PlaySound(SoundManager.Sound.EnemyHit);
-        // Substituir pelo som correto após atualizar o enum
-    }
+    private void HealthSystem_OnDamaged(object sender, System.EventArgs e) { }
 
     protected virtual void HealthSystem_OnDied(object sender, System.EventArgs e)
     {
@@ -123,14 +164,10 @@ public class Enemy : MonoBehaviour
         Destroy(gameObject);
     }
 
-    protected virtual void OnDeathEffect()
-    {
-        // SoundManager.Instance.PlaySound(SoundManager.Sound.EnemyDie);
-        // Instantiate(dieParticlesPrefab, transform.position, Quaternion.identity);
-    }
+    protected virtual void OnDeathEffect() { }
 
     // ------------------------------------------------------------------
-    // API pública — WaveManager configura os stats antes do spawn
+    // API pública
     // ------------------------------------------------------------------
     public virtual void SetStats(int hp, float speed, int damage, int drop)
     {
@@ -140,6 +177,5 @@ public class Enemy : MonoBehaviour
         scrapDrop         = drop;
     }
 
-    // Acesso para raio de hit (WeaponController usa isso para detectar clique)
     public HealthSystem GetHealthSystem() => healthSystem;
 }

@@ -43,6 +43,7 @@ public class GameplayUI : MonoBehaviour
     // ------------------------------------------------------------------
     private void Start()
     {
+        if (RunManager.Instance == null) return;
         // Escuta eventos do RunManager
         RunManager.Instance.OnRunStarted    += OnRunStarted;
         RunManager.Instance.OnTimerChanged  += OnTimerChanged;
