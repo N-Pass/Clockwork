@@ -2,9 +2,8 @@
 // Singleton da Cena 3. Orquestra timer, kills, scraps,
 // pathfinding de inimigos e transição para GameManager ao fim da run.
 //
-// State machine: Setup → Running → End
-//
-// Dependências: GameManager (persiste entre cenas), Tower, HealthSystem
+// Usa RunContext para todos os valores de upgrade —
+// não chama GameManager.GetX() diretamente.
 
 using System;
 using System.Collections;
@@ -22,41 +21,57 @@ public class RunManager : MonoBehaviour
     public RunState CurrentState { get; private set; }
 
     // ------------------------------------------------------------------
-    // Eventos — WaveManager e GameplayUI escutam esses
+    // Eventos
     // ------------------------------------------------------------------
-    public event Action           OnRunStarted;
-    public event Action<int>      OnEnemyLevelUp;    // novo nível
-    public event Action<int>      OnScrapsChanged;   // scraps totais da run
-    public event Action<float>    OnTimerChanged;    // 0..1 normalizado
-    public event Action<bool>     OnRunEnded;        // true = vitória
+    public event Action        OnRunStarted;
+    public event Action<int>   OnEnemyLevelUp;
+    public event Action<int>   OnScrapsChanged;
+    public event Action<float> OnTimerChanged;
+    public event Action<bool>  OnRunEnded;
 
     // ------------------------------------------------------------------
     // Inspector
     // ------------------------------------------------------------------
     [Header("Referências")]
-    [SerializeField] private Tower mainTower;
+    [SerializeField] private Tower        mainTower;
+    [SerializeField] private UpgradeTreeSO upgradeTree; // arrastar o UpgradeTreeSO aqui
 
     [Header("Configuração de dificuldade")]
     [SerializeField] private int killsPerEnemyLevel = 10;
 
     [Header("Override de teste — ignora upgrades quando marcado")]
-    [SerializeField] private bool  overrideStats    = false;
+    [SerializeField] private bool  overrideStats      = false;
     [SerializeField] private float overrideRunDuration = 30f;
     [SerializeField] private int   overrideTowerHP     = 5;
+    [SerializeField] private int   overrideClickDamage = 1;
+    [SerializeField] private float overrideFireRate    = 1.5f;
+    [SerializeField] private float overrideProjectileSpeed = 18f;
+    [SerializeField] private float overrideScrapDropRate   = 1f;
+    [SerializeField] private int   overrideSubTowerSlots = 0;
+    [SerializeField] private int   overrideMachineGunSlots = 0;
+
+    // ------------------------------------------------------------------
+    // RunContext — valores ativos nesta run
+    // Acessível por WeaponController, Projectile, WaveManager etc.
+    // ------------------------------------------------------------------
+    public RunContext Context { get; private set; }
 
     // ------------------------------------------------------------------
     // Estado interno
     // ------------------------------------------------------------------
     private float runTimer;
     private float runDuration;
-
-    private int  scrapsEarned;
-    private int  killCount;
+    private int   scrapsEarned;
+    private int   killCount;
 
     public int EnemyLevel { get; private set; } = 0;
 
     private readonly List<int>   piecesEarnedThisRun = new List<int>();
-    private readonly List<Tower> allTowers           = new List<Tower>();
+    private readonly List<Tower> allTowers = new List<Tower>();
+
+    // Posição de grade de cada subtorre registrada
+    private readonly Dictionary<Tower, (int col, int row)> towerGridPositions
+        = new Dictionary<Tower, (int col, int row)>();
 
     // ------------------------------------------------------------------
     // Unity
@@ -68,24 +83,18 @@ public class RunManager : MonoBehaviour
 
     private void Start()
     {
-        // Duração da run — override ou upgrade
-        if (overrideStats)
-            runDuration = overrideRunDuration;
-        else if (GameManager.Instance != null)
-            runDuration = GameManager.Instance.GetRunDuration();
-        else
-            runDuration = overrideRunDuration;
-        runTimer = runDuration;
+        // Monta o RunContext
+        BuildContext();
 
-        // HP da torre — override ou upgrade
+        // Aplica duração da run
+        runDuration = Context.runDuration;
+        runTimer    = runDuration;
+
+        // Aplica HP da torre
         HealthSystem towerHS = mainTower.GetComponent<HealthSystem>();
-        int towerHP = overrideStats
-            ? overrideTowerHP
-            : (GameManager.Instance != null ? GameManager.Instance.GetTowerHP() : overrideTowerHP);
-        towerHS.SetHealthAmountMax(towerHP, updateHealthAmount: true);
+        towerHS.SetHealthAmountMax(Context.towerHP, updateHealthAmount: true);
         towerHS.OnDied += (s, e) => TowerDestroyed();
 
-        // Torre principal é sempre o primeiro alvo
         allTowers.Clear();
         allTowers.Add(mainTower);
 
@@ -104,31 +113,72 @@ public class RunManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
+    // Construção do RunContext
+    // ------------------------------------------------------------------
+    private void BuildContext()
+    {
+        if (overrideStats)
+        {
+            // Modo de teste — usa valores do Inspector diretamente
+            Context = new RunContext
+            {
+                towerHP          = overrideTowerHP,
+                clickDamage      = overrideClickDamage,
+                fireRate         = overrideFireRate,
+                projectileSpeed  = overrideProjectileSpeed,
+                runDuration      = overrideRunDuration,
+                scrapDropRate    = overrideScrapDropRate,
+                subTowerSlots    = overrideSubTowerSlots,   
+                machineGunSlots  = overrideMachineGunSlots
+            };
+            return;
+        }
+
+        // Modo produção — lê perfil e aplica upgrades
+        ProfileData profile = GameManager.Instance?.CurrentProfile ?? new ProfileData();
+        Context = RunContext.FromProfile(profile, upgradeTree);
+    }
+
+    // ------------------------------------------------------------------
+    // Acessores rápidos para outros scripts
+    // ------------------------------------------------------------------
+    public int   GetClickDamage()      => Context?.clickDamage     ?? 1;
+    public float GetFireRate()         => Context?.fireRate         ?? 1.5f;
+    public float GetProjectileSpeed()  => Context?.projectileSpeed  ?? 18f;
+    public float GetScrapDropRate()    => Context?.scrapDropRate     ?? 1f;
+    public int   GetSubTowerSlots()    => Context?.subTowerSlots    ?? 0;
+    public int   GetMachineGunSlots()  => Context?.machineGunSlots  ?? 0;
+
+    // ------------------------------------------------------------------
     // Estados
     // ------------------------------------------------------------------
     private void EnterSetup()
     {
         CurrentState = RunState.Setup;
-        // SubTowerPlacement.cs só permite colocar torres quando Setup
     }
 
-    // Chamado pelo botão "Start" na UI da fase de Setup
     public void BeginRun()
     {
         if (CurrentState != RunState.Setup) return;
-
         CurrentState = RunState.Running;
         OnRunStarted?.Invoke();
     }
 
     // ------------------------------------------------------------------
-    // Gerenciamento de torres (para pathfinding dos inimigos)
+    // Torres
     // ------------------------------------------------------------------
     public void RegisterSubTower(Tower subTower)
     {
-        if (subTower == null || allTowers.Contains(subTower)) return;
+        RegisterSubTower(subTower, -1, -1);
+    }
 
+    public void RegisterSubTower(Tower subTower, int col, int row)
+    {
+        if (subTower == null || allTowers.Contains(subTower)) return;
         allTowers.Add(subTower);
+
+        if (col >= 0 && row >= 0)
+            towerGridPositions[subTower] = (col, row);
 
         HealthSystem hs = subTower.GetComponent<HealthSystem>();
         if (hs != null)
@@ -138,36 +188,53 @@ public class RunManager : MonoBehaviour
     private void UnregisterTower(Tower tower)
     {
         allTowers.Remove(tower);
+        towerGridPositions.Remove(tower);
     }
 
-    // ------------------------------------------------------------------
-    // Pathfinding — Enemy chama isso a cada 0.2s para atualizar alvo
-    // ------------------------------------------------------------------
+    // Retorna a subtorre no quadrante do inimigo, ou a torre principal se não houver
+    public Tower GetPreferredTarget(WaypointGrid.Direction direction)
+    {
+        foreach (Tower tower in allTowers)
+        {
+            if (tower == null || tower == mainTower) continue;
+            if (!towerGridPositions.ContainsKey(tower)) continue;
+
+            var (col, row) = towerGridPositions[tower];
+
+            bool inQuadrant = direction switch
+            {
+                WaypointGrid.Direction.West  => col >= 0 && col <= 4,
+                WaypointGrid.Direction.East  => col >= 7 && col <= 11,
+                WaypointGrid.Direction.North => row >= 0 && row <= 2,
+                WaypointGrid.Direction.South => row >= 3 && row <= 5,
+                _ => false
+            };
+
+            if (inQuadrant) return tower;
+        }
+
+        return mainTower;
+    }
+
     public Tower GetNearestTower(Vector3 fromPosition)
     {
-        Tower nearest  = null;
-        float minDist  = float.MaxValue;
+        Tower nearest = null;
+        float minDist = float.MaxValue;
 
         foreach (Tower tower in allTowers)
         {
             if (tower == null) continue;
-
             float dist = Vector3.Distance(fromPosition, tower.transform.position);
-            if (dist < minDist)
-            {
-                minDist  = dist;
-                nearest  = tower;
-            }
+            if (dist < minDist) { minDist = dist; nearest = tower; }
         }
 
-        // Fallback para torre principal se lista estiver vazia
         return nearest != null ? nearest : mainTower;
     }
 
     public Tower GetMainTower() => mainTower;
 
     // ------------------------------------------------------------------
-    // Scraps — chamado por Enemy.OnDied e MiningNode.Collect
+    // Scraps
     // ------------------------------------------------------------------
     public void AddScraps(int amount)
     {
@@ -176,17 +243,16 @@ public class RunManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
-    // Eventos de inimigos — chamados por Enemy e Boss ao morrer
+    // Kills
     // ------------------------------------------------------------------
     public void OnEnemyKilled(int rawDrop)
     {
-        // Aplica multiplicador de scrap do upgrade
-        int scraps = Mathf.RoundToInt(rawDrop * GameManager.Instance.GetScrapDropRate());
+        float dropRate = Context?.scrapDropRate ?? 1f;
+        int scraps     = Mathf.RoundToInt(rawDrop * dropRate);
         AddScraps(scraps);
 
         killCount++;
 
-        // Sobe o nível de inimigos a cada X kills
         if (killCount % killsPerEnemyLevel == 0)
         {
             EnemyLevel++;
@@ -194,7 +260,6 @@ public class RunManager : MonoBehaviour
         }
     }
 
-    // Boss dropa uma peça do relógio além dos scraps normais
     public void OnBossKilled(int pieceId, int rawDrop)
     {
         if (!piecesEarnedThisRun.Contains(pieceId))
@@ -202,21 +267,18 @@ public class RunManager : MonoBehaviour
 
         OnEnemyKilled(rawDrop);
 
-        // Se todas as peças foram coletadas, desbloqueia estágio final
-        // Para a jam: simplesmente termina a run como vitória total
-        if (piecesEarnedThisRun.Count + GetTotalPiecesAlreadyOwned() >= GameManager.TOTAL_CLOCK_PIECES)
-        {
+        int totalPieces = GetTotalPiecesAlreadyOwned() + piecesEarnedThisRun.Count;
+        if (totalPieces >= GameManager.TOTAL_CLOCK_PIECES)
             EndRun(success: true);
-        }
     }
 
     private int GetTotalPiecesAlreadyOwned()
     {
-        return GameManager.Instance.CurrentProfile?.clockPiecesCollected.Count ?? 0;
+        return GameManager.Instance?.CurrentProfile?.clockPiecesCollected.Count ?? 0;
     }
 
     // ------------------------------------------------------------------
-    // Torre destruída — derrota
+    // Torre destruída
     // ------------------------------------------------------------------
     private void TowerDestroyed()
     {
@@ -233,7 +295,6 @@ public class RunManager : MonoBehaviour
 
         CurrentState = RunState.End;
 
-        // Passa dados para o GameManager (se existir — guard para testes diretos)
         if (GameManager.Instance != null)
         {
             GameManager.Instance.RunScrapsEarned = scrapsEarned;
@@ -241,9 +302,7 @@ public class RunManager : MonoBehaviour
             GameManager.Instance.RunPiecesEarned = piecesEarnedThisRun;
         }
 
-        // Dispara evento ANTES do delay — RunEndUI aparece imediatamente
         OnRunEnded?.Invoke(success);
-
     }
 
     // ------------------------------------------------------------------

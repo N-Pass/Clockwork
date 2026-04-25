@@ -74,7 +74,16 @@ public class MainMenuController : MonoBehaviour
     {
         // Painel principal
         playButton.onClick.AddListener(OnPlayClicked);
-        quitButton.onClick.AddListener(() => Application.Quit());
+        quitButton.onClick.AddListener(() =>
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#elif UNITY_WEBGL
+    Application.OpenURL("https://coreglitch-studio.io/clockwork"); // substituir pela URL do jogo
+#else
+    Application.Quit();
+#endif
+        });
 
         // Modal Inicializar
         initYesButton.onClick.AddListener(OnInitYes);

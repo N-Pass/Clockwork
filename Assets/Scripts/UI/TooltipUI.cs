@@ -42,19 +42,22 @@ public class TooltipUI : MonoBehaviour
 
     private void HandleFollowMouse()
     {
-        Vector2 anchoredPosition = rectTransform.anchoredPosition = Input.mousePosition / canvasRectTransform.localScale.x;
+        Vector2 mousePos;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            canvasRectTransform,
+            Input.mousePosition,
+            null, // null para Canvas Overlay, camera para Canvas Camera
+            out mousePos
+        );
 
-        if (anchoredPosition.x + backgroundRextTransform.rect.width > canvasRectTransform.rect.width)
-        {
-            anchoredPosition.x = canvasRectTransform.rect.width - backgroundRextTransform.rect.width;
-        }
+        // Mantém dentro dos limites do canvas
+        if (mousePos.x + backgroundRextTransform.rect.width > canvasRectTransform.rect.width / 2f)
+            mousePos.x -= backgroundRextTransform.rect.width;
 
-        if (anchoredPosition.y + backgroundRextTransform.rect.height > canvasRectTransform.rect.height)
-        {
-            anchoredPosition.y = canvasRectTransform.rect.height - backgroundRextTransform.rect.height;
-        }
+        if (mousePos.y - backgroundRextTransform.rect.height < -canvasRectTransform.rect.height / 2f)
+            mousePos.y += backgroundRextTransform.rect.height;
 
-        rectTransform.anchoredPosition = anchoredPosition;
+        rectTransform.anchoredPosition = mousePos;
     }
 
     private void SetText(string tooltipText)

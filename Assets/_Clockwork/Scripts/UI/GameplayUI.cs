@@ -52,7 +52,7 @@ public class GameplayUI : MonoBehaviour
         RunManager.Instance.OnRunEnded      += OnRunEnded;
 
         // Botão de início da run (fase Setup)
-        startRunButton?.onClick.AddListener(() => RunManager.Instance.BeginRun());
+        //startRunButton?.onClick.AddListener(() => RunManager.Instance.BeginRun());
 
         // Estado inicial
         RefreshScraps(0);

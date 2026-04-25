@@ -31,11 +31,17 @@ public class Boss : Enemy
     // ------------------------------------------------------------------
     protected override void HealthSystem_OnDied(object sender, System.EventArgs e)
     {
+        // Notifica antes de destruir
+        RunManager.Instance.OnBossKilled(pieceId, scrapDrop);
         OnDeathEffect();
 
-        // RunManager registra peça + scraps + verifica win condition
-        RunManager.Instance.OnBossKilled(pieceId, scrapDrop);
+        // Pequeno delay antes de destruir evita o erro de editor
+        StartCoroutine(DestroyNextFrame());
+    }
 
+    private System.Collections.IEnumerator DestroyNextFrame()
+    {
+        yield return null;
         Destroy(gameObject);
     }
 

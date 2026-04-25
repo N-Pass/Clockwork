@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 50d0bafe590b87845bc5c470018844e7, type: 3}
+  m_Name: firerate_01
+  m_EditorClassIdentifier: 
+  nodeID: PINK_01
+  nodeName: Fire Rate+
+  description: Add + 0.5 fire rate for main cannon
+  icon: {fileID: 0}
+  nodeColor: {r: 0.07066631, g: 1, b: 0, a: 1}
+  cost: 35
+  effectType: 3
+  effectValue: 0.5
+  positionOffset: {x: 0, y: 100}
+  children:
+  - {fileID: 11400000, guid: 7da851d27d7dacb43b7bd12a97960891, type: 2}
+  - {fileID: 11400000, guid: fd4dba956ed006140af0b5f102fc9b7e, type: 2}
+  - {fileID: 11400000, guid: 9a7f8c7a776e18f40a3e664b4e877286, type: 2}

@@ -25,10 +25,13 @@ public class Projectile : MonoBehaviour
     // ------------------------------------------------------------------
     private void Awake()
     {
-        lifeTimer = lifetime;
-        damage    = GameManager.Instance != null
-            ? GameManager.Instance.GetClickDamage()
+        lifeTimer  = lifetime;
+        damage     = RunManager.Instance != null
+            ? RunManager.Instance.GetClickDamage()
             : 1;
+        moveSpeed  = RunManager.Instance != null
+            ? RunManager.Instance.GetProjectileSpeed()
+            : moveSpeed;
     }
 
     private void Update()

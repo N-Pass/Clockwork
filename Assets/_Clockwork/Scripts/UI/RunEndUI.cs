@@ -87,17 +87,18 @@ public class RunEndUI : MonoBehaviour
     // GameManager.EndRun() já salvou os dados antes desta tela aparecer
     private void OnRetry()
     {
-        // Os dados da run já foram aplicados em GameManager.EndRun()
-        // (chamado pelo RunManager com delay). Mas se o jogador clicar
-        // Retry antes do delay terminar, forçamos a transição:
-        GameManager.Instance.StartRun();
+        if (GameManager.Instance != null)
+            GameManager.Instance.RetryRun(); // salva scraps e reinicia gameplay
+        else
+            UnityEngine.SceneManagement.SceneManager.LoadScene(
+                UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
     }
 
-    // Hub — vai para o HUD para gastar scraps em upgrades
     private void OnGoToHub()
     {
-        // EndRun() já foi chamado pelo RunManager.DelayedSceneChange()
-        // Se o jogador clicar antes do delay, garante a transição:
-        GameManager.Instance.EndRun();
+        if (GameManager.Instance != null)
+            GameManager.Instance.EndRun(); // salva scraps e vai para HUD
+        else
+            UnityEngine.SceneManagement.SceneManager.LoadScene(1);
     }
 }

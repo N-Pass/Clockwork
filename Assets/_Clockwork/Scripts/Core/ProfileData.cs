@@ -12,6 +12,9 @@ public class ProfileData
     // Moeda acumulada entre runs
     public int totalScraps = 0;
 
+    // Nós de upgrade comprados — guardados por nodeID
+    public List<string> purchasedNodeIDs = new List<string>();
+
     // Nível de cada upgrade — índice corresponde ao enum UpgradeType
     // Inicializado com zeros (sem upgrades)
     public int[] upgradeLevels = new int[Enum.GetValues(typeof(UpgradeType)).Length];

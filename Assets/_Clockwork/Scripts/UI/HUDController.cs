@@ -1,168 +1,244 @@
 // HUDController.cs
-// Controla a Cena 2 — HUD de upgrades entre runs.
-//
-// Lê o ProfileData do GameManager, exibe estado de cada upgrade,
-// permite compra com scraps e inicia a run via GameManager.StartRun().
+// Controla a Cena 2 — HUD entre runs.
 //
 // Hierarquia esperada no Canvas:
-//   HUDController
-//   ├─ ScrapsText              (total de scraps disponíveis)
-//   ├─ ClockPiecesText         (X / TOTAL_CLOCK_PIECES)
-//   ├─ RunButton               ("Hold the Line")
-//   └─ UpgradeGrid
-//       └─ UpgradeItem (×6)    — prefab com UpgradeItemUI
+//   Canvas
+//   ├─ LeftPanel (2/3 da tela)
+//   │   ├─ PageContainer
+//   │   │   ├─ Page1 (arvore de upgrades)
+//   │   │   ├─ Page2 (vazia)
+//   │   │   └─ Page3 (vazia)
+//   │   └─ NavButtons
+//   │       ├─ BtnPage1, BtnPage2, BtnPage3
+//   ├─ RightPanel (1/3 da tela)
+//   │   ├─ StatsPanel → StatsText
+//   │   ├─ ScrapsText
+//   │   └─ ActionPanel → RunButton, MenuButton
+//   └─ ConfirmModal
+//       ├─ ModalMessage, YesButton, NoButton
 
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
 public class HUDController : MonoBehaviour
 {
-    // ------------------------------------------------------------------
-    // Inspector
-    // ------------------------------------------------------------------
-    [Header("HUD superior")]
+    public static HUDController Instance { get; private set; }
+
+    [Header("Paginas")]
+    [SerializeField] private GameObject page1;
+    [SerializeField] private GameObject page2;
+    [SerializeField] private GameObject page3;
+
+    [Header("Botoes de navegacao")]
+    [SerializeField] private Button btnPage1;
+    [SerializeField] private Button btnPage2;
+    [SerializeField] private Button btnPage3;
+
+    [Header("Arvore de upgrades")]
+    [SerializeField] private UpgradeTreeSO  upgradeTree;
+    [SerializeField] private RectTransform  treeContainer;
+    [SerializeField] private GameObject     nodeButtonPrefab;
+
+    [Header("Stats")]
+    [SerializeField] private TextMeshProUGUI statsText;
     [SerializeField] private TextMeshProUGUI scrapsText;
-    [SerializeField] private TextMeshProUGUI clockPiecesText;
 
-    [Header("Botão de run")]
-    [SerializeField] private Button          runButton;
-    [SerializeField] private TextMeshProUGUI runButtonText;
+    [Header("Botoes de acao")]
+    [SerializeField] private Button runButton;
+    [SerializeField] private Button menuButton;
 
-    [Header("Upgrades — arrastar os 6 itens")]
-    [SerializeField] private UpgradeItemUI[] upgradeItems;
+    [Header("Modal de confirmacao")]
+    [SerializeField] private GameObject      confirmModal;
+    [SerializeField] private TextMeshProUGUI modalMessage;
+    [SerializeField] private Button          modalYesButton;
+    [SerializeField] private Button          modalNoButton;
 
-    // ------------------------------------------------------------------
-    // Unity
-    // ------------------------------------------------------------------
+    private System.Action pendingConfirmAction;
+    private Dictionary<string, NodeButtonUI> nodeButtons = new Dictionary<string, NodeButtonUI>();
+
+    private void Awake()
+    {
+        Instance = this;
+
+        btnPage1.onClick.AddListener(() => ShowPage(1));
+        btnPage2.onClick.AddListener(() => ShowPage(2));
+        btnPage3.onClick.AddListener(() => ShowPage(3));
+
+        modalYesButton.onClick.AddListener(OnModalYes);
+        modalNoButton.onClick.AddListener(OnModalNo);
+
+        runButton.onClick.AddListener(() => ShowConfirm(
+            "Iniciar uma nova run?",
+            () => GameManager.Instance.StartRun()
+        ));
+
+        menuButton.onClick.AddListener(() => ShowConfirm(
+            "Voltar ao menu principal?\nProgresso sera salvo.",
+            () => GameManager.Instance.GoToMainMenu()
+        ));
+    }
+
     private void Start()
     {
-        runButton.onClick.AddListener(OnRunButtonClicked);
+        confirmModal.SetActive(false);
+        ShowPage(1);
+        BuildUpgradeTree();
+        RefreshStats();
+        RefreshScraps();
+    }
 
-        // Configura cada UpgradeItemUI com seu tipo correspondente
-        UpgradeType[] types = (UpgradeType[])System.Enum.GetValues(typeof(UpgradeType));
-        for (int i = 0; i < upgradeItems.Length && i < types.Length; i++)
+    // ------------------------------------------------------------------
+    // Navegacao
+    // ------------------------------------------------------------------
+    private void ShowPage(int page)
+    {
+        page1.SetActive(page == 1);
+        page2.SetActive(page == 2);
+        page3.SetActive(page == 3);
+        SetNavActive(btnPage1, page == 1);
+        SetNavActive(btnPage2, page == 2);
+        SetNavActive(btnPage3, page == 3);
+    }
+
+    private void SetNavActive(Button btn, bool active)
+    {
+        ColorBlock cb   = btn.colors;
+        cb.normalColor  = active ? new Color(0.3f, 0.8f, 0.3f) : Color.white;
+        btn.colors      = cb;
+    }
+
+    // ------------------------------------------------------------------
+    // Arvore dinamica
+    // ------------------------------------------------------------------
+    private void BuildUpgradeTree()
+    {
+        if (upgradeTree == null || upgradeTree.rootNode == null)
         {
-            upgradeItems[i].Initialize(types[i], this);
+            Debug.LogWarning("[HUDController] UpgradeTreeSO nao atribuido.");
+            return;
         }
 
-        // Verifica se todas as peças foram coletadas (jogo completo)
-        bool gameCompleted = GameManager.Instance.CurrentProfile?.gameCompleted ?? false;
-        runButton.interactable = !gameCompleted;
-        runButtonText.SetText(gameCompleted ? "Restored" : "Hold the Line");
+        foreach (Transform child in treeContainer)
+            Destroy(child.gameObject);
+        nodeButtons.Clear();
 
-        RefreshUI();
+        CreateNodeButton(upgradeTree.rootNode, Vector2.zero, null);
     }
 
-    // ------------------------------------------------------------------
-    // Atualização da UI
-    // ------------------------------------------------------------------
-    public void RefreshUI()
+    private void CreateNodeButton(UpgradeNodeSO node, Vector2 position, UpgradeNodeSO parent)
     {
-        if (GameManager.Instance.CurrentProfile == null) return;
+        if (node == null || nodeButtons.ContainsKey(node.nodeID)) return;
 
-        int scraps = GameManager.Instance.CurrentProfile.totalScraps;
-        int pieces = GameManager.Instance.CurrentProfile.clockPiecesCollected.Count;
+        GameObject    go  = Instantiate(nodeButtonPrefab, treeContainer);
+        RectTransform rt  = go.GetComponent<RectTransform>();
+        rt.anchoredPosition = position;
 
-        scrapsText.SetText("Scraps: " + scraps);
-        clockPiecesText.SetText("Clock Pieces: " + pieces + " / " + GameManager.TOTAL_CLOCK_PIECES);
+        NodeButtonUI btn = go.GetComponent<NodeButtonUI>();
+        btn.Initialize(node, this);
+        nodeButtons[node.nodeID] = btn;
 
-        foreach (UpgradeItemUI item in upgradeItems)
-            item.Refresh();
-    }
+        bool isPurchased  = IsNodePurchased(node);
+        bool isRoot       = parent == null;
+        bool parentBought = parent == null || IsNodePurchased(parent);
 
-    // ------------------------------------------------------------------
-    // Compra de upgrade — chamada pelo UpgradeItemUI
-    // ------------------------------------------------------------------
-    public void TryBuyUpgrade(UpgradeType type)
-    {
-        bool purchased = GameManager.Instance.TryPurchaseUpgrade(type);
+        btn.SetState(
+            purchased:  isPurchased,
+            visible:    isRoot || parentBought,
+            affordable: CanAfford(node)
+        );
 
-        if (purchased)
-            RefreshUI();
-        // Se não comprou: feedback visual (shake no botão, som de erro, etc.)
-    }
-
-    // ------------------------------------------------------------------
-    // Run button
-    // ------------------------------------------------------------------
-    private void OnRunButtonClicked()
-    {
-        GameManager.Instance.StartRun();
-    }
-}
-
-// ------------------------------------------------------------------
-// UpgradeItemUI — representa um upgrade individual na grade
-// Attach no prefab de cada item de upgrade
-// ------------------------------------------------------------------
-public class UpgradeItemUI : MonoBehaviour
-{
-    [Header("Componentes do prefab")]
-    [SerializeField] private TextMeshProUGUI nameText;
-    [SerializeField] private TextMeshProUGUI levelText;
-    [SerializeField] private TextMeshProUGUI costText;
-    [SerializeField] private TextMeshProUGUI valueText;
-    [SerializeField] private Button          buyButton;
-
-    private UpgradeType    upgradeType;
-    private HUDController  hud;
-
-    private static readonly string[] upgradeNames =
-    {
-        "Click Damage",
-        "Tower HP",
-        "Run Duration",
-        "Scrap Drop",
-        "Sub Towers",
-        "Click Area"
-    };
-
-    public void Initialize(UpgradeType type, HUDController controller)
-    {
-        upgradeType = type;
-        hud         = controller;
-
-        if (nameText != null)
-            nameText.SetText(upgradeNames[(int)type]);
-
-        buyButton.onClick.AddListener(() => hud.TryBuyUpgrade(upgradeType));
-
-        Refresh();
-    }
-
-    public void Refresh()
-    {
-        int  currentLevel = GameManager.Instance.GetUpgradeLevel(upgradeType);
-        int  maxLevel     = UpgradeConfig.GetMaxLevel(upgradeType);
-        bool isMaxed      = currentLevel >= maxLevel;
-        int  cost         = isMaxed ? 0 : UpgradeConfig.GetCost(upgradeType, currentLevel);
-        int  scraps       = GameManager.Instance.CurrentProfile?.totalScraps ?? 0;
-
-        if (levelText != null)
-            levelText.SetText(isMaxed ? "MAX" : "Lv " + currentLevel);
-
-        if (costText != null)
-            costText.SetText(isMaxed ? "—" : cost + " scraps");
-
-        if (valueText != null)
-            valueText.SetText(GetValueString(currentLevel));
-
-        // Desabilita botão se maxado ou sem scraps
-        buyButton.interactable = !isMaxed && scraps >= cost;
-    }
-
-    private string GetValueString(int level)
-    {
-        return upgradeType switch
+        if (isPurchased || isRoot)
         {
-            UpgradeType.ClickDamage   => "DMG " + UpgradeConfig.GetClickDamage(level),
-            UpgradeType.TowerHP       => "HP " + UpgradeConfig.GetTowerHP(level),
-            UpgradeType.RunDuration   => UpgradeConfig.GetRunDuration(level) + "s",
-            UpgradeType.ScrapDropRate => "x" + UpgradeConfig.GetScrapDrop(level).ToString("F2"),
-            UpgradeType.SubTowerSlots => UpgradeConfig.GetSubTowerSlots(level) + " slots",
-            UpgradeType.ClickArea     => "R " + UpgradeConfig.GetClickArea(level).ToString("F1"),
-            _                         => ""
-        };
+            foreach (UpgradeNodeSO child in node.children)
+                CreateNodeButton(child, position + child.positionOffset, node);
+        }
     }
+
+    // ------------------------------------------------------------------
+    // Compra
+    // ------------------------------------------------------------------
+    public void RequestPurchase(UpgradeNodeSO node)
+    {
+        if (node == null) return;
+        ShowConfirm(
+            $"Comprar {node.nodeName} por {node.cost} scraps?",
+            () => ExecutePurchase(node)
+        );
+    }
+
+    private void ExecutePurchase(UpgradeNodeSO node)
+    {
+        ProfileData profile = GameManager.Instance.CurrentProfile;
+        int         slot    = GameManager.Instance.CurrentSlot;
+
+        if (UpgradeSystem.Purchase(node, profile, slot))
+        {
+            BuildUpgradeTree();
+            RefreshStats();
+            RefreshScraps();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Modal
+    // ------------------------------------------------------------------
+    public void ShowConfirm(string message, System.Action onYes)
+    {
+        pendingConfirmAction = onYes;
+        modalMessage.SetText(message);
+        confirmModal.SetActive(true);
+    }
+
+    private void OnModalYes()
+    {
+        confirmModal.SetActive(false);
+        pendingConfirmAction?.Invoke();
+        pendingConfirmAction = null;
+    }
+
+    private void OnModalNo()
+    {
+        confirmModal.SetActive(false);
+        pendingConfirmAction = null;
+    }
+
+    // ------------------------------------------------------------------
+    // Stats
+    // ------------------------------------------------------------------
+    public void RefreshStats()
+    {
+        if (statsText == null) return;
+
+        ProfileData p   = GameManager.Instance?.CurrentProfile ?? new ProfileData();
+        RunContext  ctx = RunContext.FromProfile(p, upgradeTree);
+
+        statsText.SetText(
+            "<b>STATUS</b>\n\n" +
+            $"Vida da Torre:         {ctx.towerHP}\n" +
+            $"Dano:                  {ctx.clickDamage}\n" +
+            $"Velocidade do Tiro:    {ctx.projectileSpeed:F1}\n" +
+            $"Tiros por Segundo:     {ctx.fireRate:F1}\n" +
+            $"Duracao da Run:        {ctx.runDuration:F0}s\n" +
+            $"Slots SubTorre:        {ctx.subTowerSlots}\n" +
+            $"Slots Metralhadora:    {ctx.machineGunSlots}"
+        );
+    }
+
+    public void RefreshScraps()
+    {
+        if (scrapsText == null) return;
+        int scraps = GameManager.Instance?.CurrentProfile?.totalScraps ?? 0;
+        scrapsText.SetText($"Scraps: {scraps}");
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    private bool IsNodePurchased(UpgradeNodeSO node)
+        => GameManager.Instance?.CurrentProfile?.purchasedNodeIDs.Contains(node.nodeID) ?? false;
+
+    private bool CanAfford(UpgradeNodeSO node)
+        => (GameManager.Instance?.CurrentProfile?.totalScraps ?? 0) >= node.cost;
 }

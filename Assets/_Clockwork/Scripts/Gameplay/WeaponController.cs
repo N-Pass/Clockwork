@@ -37,12 +37,14 @@ public class WeaponController : MonoBehaviour
     // ------------------------------------------------------------------
     private void Start()
     {
-        fireRate = baseFireRate;
+        // Lê fireRate do RunContext se disponível
+        fireRate = RunManager.Instance != null
+            ? RunManager.Instance.GetFireRate()
+            : baseFireRate;
     }
 
     private void Update()
     {
-        if (RunManager.Instance == null) return;
         if (RunManager.Instance.CurrentState != RunManager.RunState.Running) return;
 
         HandleAiming();

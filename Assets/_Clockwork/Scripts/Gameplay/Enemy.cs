@@ -69,6 +69,15 @@ public class Enemy : MonoBehaviour
     protected virtual void Update()
     {
         if (!routeReady) return;
+
+        // Para completamente quando a run termina
+        if (RunManager.Instance != null &&
+            RunManager.Instance.CurrentState == RunManager.RunState.End)
+        {
+            rb2D.linearVelocity = Vector2.zero;
+            return;
+        }
+
         HandleMovement();
     }
 
@@ -102,7 +111,12 @@ public class Enemy : MonoBehaviour
         }
 
         // 3. Ponto final — próximo à torre
-        route.Add(WaypointGrid.GetFinalPoint(direction));
+        // Ponto final — subtorre no quadrante ou torre principal
+        Tower preferred = RunManager.Instance.GetPreferredTarget(direction);
+        Vector3 finalPoint = preferred != null && preferred != RunManager.Instance.GetMainTower()
+            ? preferred.transform.position
+            : WaypointGrid.GetFinalPoint(direction);
+        route.Add(finalPoint);
 
         routeReady = true;
     }
@@ -178,4 +192,8 @@ public class Enemy : MonoBehaviour
     }
 
     public HealthSystem GetHealthSystem() => healthSystem;
+
+    // Slow effect
+    public float GetCurrentSpeed()            => moveSpeed;
+    public void  SetCurrentSpeed(float speed) => moveSpeed = speed;
 }
